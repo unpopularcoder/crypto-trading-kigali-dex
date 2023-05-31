@@ -37,4 +37,50 @@ func newEchoServer() *echo.Echo {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: 
+		AllowOrigins: []string{"*"},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
+	}))
+
+	loadRoutes(e)
+
+	return e
+}
+
+func StartServer(ctx context.Context) {
+	//init database
+	models.Connect(os.Getenv("HSK_DATABASE_URL"))
+
+	//init health check service
+	healthCheckService = NewHealthCheckService(nil)
+
+	//init erc20 service
+	erc20Service = ethereum.NewErc20Service(nil)
+
+	//init event queue
+	queueService, _ = common.InitQueue(
+		&common.RedisQueueConfig{
+			Name:   common.HYDRO_ENGINE_EVENTS_QUEUE_KEY,
+			Ctx:    ctx,
+			Client: connection.NewRedisClient(os.Getenv("HSK_REDIS_URL")),
+		},
+	)
+
+	e := newEchoServer()
+	s := &http.Server{
+		Addr:         ":3003",
+		ReadTimeout:  20 * time.Second,
+		WriteTimeout: 20 * time.Second,
+	}
+
+	go func() {
+		if err := e.StartServer(s); err != nil {
+			e.Logger.Info("shutting down the server: %v", err)
+			panic(err)
+		}
+	}()
+
+	<-ctx.Done()
+	if err := e.Shutdown(ctx); err != nil {
+		e.Logger.Fatal(err)
+	}
+}
