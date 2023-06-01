@@ -46,4 +46,11 @@ func buildErrorMessage(errors validator.ValidationErrors) string {
 	return buff.String()
 }
 
-func buildSingleEr
+func buildSingleError(err validator.FieldError) string {
+	switch err.Tag() {
+	case "required":
+		return fmt.Sprintf("%s is required", err.Field())
+	default:
+		return fmt.Sprintf("Key: '%s' Error:Field validation for '%s' failed on the '%s' tag", err.Namespace(), err.Field(), err.Tag())
+	}
+}
