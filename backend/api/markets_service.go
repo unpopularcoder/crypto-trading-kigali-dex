@@ -74,3 +74,48 @@ func GetMarkets(_ Param) (interface{}, error) {
 			MarketStatus:           *marketStatus,
 		})
 	}
+
+	return map[string]interface{}{
+		"markets": markets,
+	}, nil
+}
+
+func GetMarketStatus(marketID string) *MarketStatus {
+	yesterday := time.Now().UTC().Add(-time.Hour * 24)
+	trades := models.TradeDao.FindTradesByMarket(marketID, yesterday, time.Now())
+
+	lastPrice := decimal.Zero
+	lastPriceIncrease := decimal.Zero
+	price24h := decimal.Zero
+	amount24h := decimal.Zero
+	quoteTokenVolume24h := decimal.Zero
+
+	if len(trades) == 0 {
+		return &MarketStatus{
+			LastPrice:           lastPrice,
+			LastPriceIncrease:   lastPriceIncrease,
+			Price24h:            price24h,
+			Amount24h:           amount24h,
+			QuoteTokenVolume24h: quoteTokenVolume24h,
+		}
+	}
+
+	lastPrice = trades[0].Price
+	if len(trades) > 1 {
+		lastPriceIncrease = trades[0].Price.Sub(trades[1].Price)
+	}
+	price24h = trades[0].Price.Sub(trades[len(trades)-1].Price).Div(trades[len(trades)-1].Price)
+
+	for _, trade := range trades {
+		amount24h = amount24h.Add(trade.Price.Mul(trade.Amount))
+		quoteTokenVolume24h = quoteTokenVolume24h.Add(trade.Amount)
+	}
+
+	return &MarketStatus{
+		LastPrice:           lastPrice,
+		LastPriceIncrease:   lastPriceIncrease,
+		Price24h:            price24h,
+		Amount24h:           amount24h,
+		QuoteTokenVolume24h: quoteTokenVolume24h,
+	}
+}
