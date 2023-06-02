@@ -821,4 +821,100 @@ func (s *marketHandlerSuite) TestMatchOrders7() {
 					4,
 					"150",
 					"50",
-			
+				},
+			},
+		},
+		nil, nil,
+	)
+}
+
+func (s *marketHandlerSuite) assertOrderAmounts(available, pending, confirmed, canceled string, order *models.Order) {
+	s.Equal(available, order.AvailableAmount.String(), "Available Amount not match")
+	s.Equal(pending, order.PendingAmount.String(), "Pending Amount not match")
+	s.Equal(confirmed, order.ConfirmedAmount.String(), "Confirmed Amount not match")
+	s.Equal(canceled, order.CanceledAmount.String(), "Canceled Amount not match")
+}
+
+func (s *marketHandlerSuite) TestCancelOrder() {
+	order1 := newModelOrder("buy", utils.StringToDecimal("0.02"), utils.StringToDecimal("10"))
+	_ = models.OrderDao.InsertOrder(order1)
+
+	newOrderEvent := common.NewOrderEvent{
+		Event: common.Event{
+			Type:     common.EventNewOrder,
+			MarketID: order1.MarketID,
+		},
+		Order: utils.ToJsonString(order1),
+	}
+	s.marketHandler.handleNewOrder(&newOrderEvent)
+	//s.EqualValues(`{"sequence":0,"bids":[["0.02","10"]],"asks":[]}`, utils.ToJsonString(s.marketHandler.orderbook.SnapshotV2()))
+
+	cancelOrderEvent := common.CancelOrderEvent{
+		Event: common.Event{
+			Type:     common.EventNewOrder,
+			MarketID: order1.MarketID,
+		},
+		ID: order1.ID,
+	}
+	_, _ = s.marketHandler.handleCancelOrder(&cancelOrderEvent)
+	//s.EqualValues(`{"sequence":0,"bids":[],"asks":[]}`, utils.ToJsonString(s.marketHandler.orderbook.SnapshotV2()))
+	return
+}
+
+func newModelOrder(side string, price, amount decimal.Decimal) *models.Order {
+	var trader string
+	if side == "buy" {
+		trader = fakeAccount1
+	} else {
+		trader = fakeAccount2
+	}
+
+	market := models.MarketHotDai()
+
+	gasFeeInQuoteToken := decimal.Zero
+	quoteTokenHugeAmount := price.Mul(amount).Mul(decimal.New(1, int32(market.QuoteTokenDecimals)))
+	baseTokenHugeAmount := amount.Mul(decimal.New(1, int32(market.BaseTokenDecimals)))
+	orderJson := models.OrderJSON{
+		Trader:                  trader,
+		Relayer:                 os.Getenv("HSK_RELAYER_ADDRESS"),
+		BaseCurrency:            market.BaseTokenAddress,
+		QuoteCurrency:           market.QuoteTokenAddress,
+		BaseCurrencyHugeAmount:  baseTokenHugeAmount,
+		QuoteCurrencyHugeAmount: quoteTokenHugeAmount,
+		GasTokenHugeAmount:      gasFeeInQuoteToken,
+		Data:                    ethereum.GetOrderData(1, side == "sell", false, 999999999999, 0, 0, 0, rand.Uint64(), false),
+	}
+
+	id := getHydroOrderHashHexFromOrderJson(&orderJson)
+	idBytes, _ := hex.DecodeString(id)
+
+	signature, _ := ethereum.PersonalSign(idBytes, User1PrivateKey)
+
+	orderJson.Signature = "0x" + hex.EncodeToString(signature)
+
+	return &models.Order{
+		ID:              id,
+		TraderAddress:   trader,
+		MarketID:        market.ID,
+		Side:            side,
+		Price:           price,
+		Amount:          amount,
+		Status:          common.ORDER_PENDING,
+		Type:            "limit",
+		Version:         "hydro-v1",
+		AvailableAmount: amount,
+		ConfirmedAmount: decimal.Zero,
+		CanceledAmount:  decimal.Zero,
+		PendingAmount:   decimal.Zero,
+		MakerFeeRate:    decimal.Zero,
+		TakerFeeRate:    decimal.Zero,
+		MakerRebateRate: decimal.Zero,
+		GasFeeAmount:    decimal.Zero,
+		JSON:            utils.ToJsonString(&orderJson),
+		CreatedAt:       time.Now().UTC(),
+	}
+}
+
+func TestMarketHandler(t *testing.T) {
+	suite.Run(t, new(marketHandlerSuite))
+}
