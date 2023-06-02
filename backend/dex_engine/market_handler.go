@@ -302,4 +302,68 @@ func (m *MarketHandler) handleTransactionResult(event *common.ConfirmTransaction
 
 		switch event.Status {
 		case common.STATUS_FAILED:
-			ta
+			takerOrder.CanceledAmount = takerOrder.CanceledAmount.Add(trade.Amount)
+			makerOrder.CanceledAmount = makerOrder.CanceledAmount.Add(trade.Amount)
+		case common.STATUS_SUCCESSFUL:
+			takerOrder.ConfirmedAmount = takerOrder.ConfirmedAmount.Add(trade.Amount)
+			makerOrder.ConfirmedAmount = makerOrder.ConfirmedAmount.Add(trade.Amount)
+		}
+
+		makerOrder.AutoSetStatusByAmounts()
+		_ = UpdateOrder(makerOrder)
+
+		trade.Status = event.Status
+		trade.ExecutedAt = time.Unix(int64(event.Timestamp), 0)
+		_ = UpdateTrade(trade)
+	}
+
+	takerOrder.AutoSetStatusByAmounts()
+	_ = UpdateOrder(takerOrder)
+
+	return nil, nil
+}
+
+func NewMarketHandler(ctx context.Context, market *models.Market, engine *engine.Engine) (*MarketHandler, error) {
+	orders := models.OrderDao.FindMarketPendingOrders(market.ID)
+
+	// re-insert available orders into HydroEngine
+	for _, order := range orders {
+		if order.AvailableAmount.LessThanOrEqual(decimal.Zero) {
+			continue
+		}
+
+		bookOrder := common.MemoryOrder{
+			MarketID: order.MarketID,
+			ID:       order.ID,
+			Price:    order.Price,
+			Amount:   order.AvailableAmount,
+			Side:     order.Side,
+		}
+		msg := engine.ReInsertOrder(&bookOrder)
+		pushMessage(msg)
+	}
+
+	marketHandler := MarketHandler{
+		market:    market,
+		eventChan: make(chan []byte),
+		ctx:       ctx,
+
+		hydroEngine: engine,
+	}
+
+	//// todo if Load Snapshot is necessary
+	//res, err := kvStore.Get(common.GetMarketOrderbookSnapshotV2Key(market.ID))
+	//if err == common.KVStoreEmpty {
+	//	// do nothing
+	//} else if err != nil {
+	//	panic(fmt.Errorf("get snapshot error %v", err))
+	//}
+	//
+	//var snapshot struct {
+	//	Sequence uint64 `json:"sequence"`
+	//}
+	//
+	//_ = json.Unmarshal([]byte(res), &snapshot)
+
+	return &marketHandler, nil
+}
