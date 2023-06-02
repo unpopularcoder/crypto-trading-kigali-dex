@@ -186,4 +186,280 @@ func (s *marketHandlerSuite) newBatchMatchOrdersTest(
 		nil,
 	}
 
-	s.batchNewOrderTest(
+	s.batchNewOrderTest(testConfig)
+}
+
+func (s *marketHandlerSuite) batchNewOrderTest(b *batchMatchOrdersTest) {
+	b.Reset()
+	s.batchNewOrderTestPendingPart(b)
+
+	if b.whenSuccess != nil {
+		s.SetupTest()
+		b.Reset()
+		_, launchLog := s.batchNewOrderTestPendingPart(b)
+		hash := "fake-success"
+		launchLog.Hash = sql.NullString{
+			hash,
+			true,
+		}
+		models.UpdateLaunchLogToPending(launchLog)
+		takerOrderEvent := common.ConfirmTransactionEvent{
+			Event:  common.Event{},
+			Hash:   hash,
+			Status: common.STATUS_SUCCESSFUL,
+		}
+		_, _ = s.marketHandler.handleTransactionResult(&takerOrderEvent)
+		s.assertExpectedResult(b, b.whenSuccess)
+	}
+
+	if b.whenFailed != nil {
+		s.SetupTest()
+		b.Reset()
+		_, launchLog := s.batchNewOrderTestPendingPart(b)
+		hash := "fake-failed"
+		launchLog.Hash = sql.NullString{
+			hash,
+			true,
+		}
+		models.UpdateLaunchLogToPending(launchLog)
+		takerOrderEvent := common.ConfirmTransactionEvent{
+			Event:  common.Event{},
+			Hash:   hash,
+			Status: common.STATUS_FAILED,
+		}
+		_, _ = s.marketHandler.handleTransactionResult(&takerOrderEvent)
+		s.assertExpectedResult(b, b.whenFailed)
+	}
+}
+
+func (s *marketHandlerSuite) assertExpectedResult(b *batchMatchOrdersTest, result *expectedResult) {
+	// reload orders
+	b.takerOrder = models.OrderDao.FindByID(b.takerOrder.ID)
+	for i := range b.makerOrders {
+		b.makerOrders[i] = models.OrderDao.FindByID(b.makerOrders[i].ID)
+	}
+
+	for i, status := range result.expectedStatus {
+		if i == 0 {
+			s.Equal(status, b.takerOrder.Status)
+		} else {
+			s.Equal(status, b.makerOrders[i-1].Status)
+		}
+	}
+
+	for i, amounts := range result.expectedAmounts {
+		if i == 0 {
+			s.assertOrderAmounts(amounts[0], amounts[1], amounts[2], amounts[3], b.takerOrder)
+		} else {
+			s.assertOrderAmounts(amounts[0], amounts[1], amounts[2], amounts[3], b.makerOrders[i-1])
+		}
+	}
+
+	queueBuffers := wsQueue.(*common.MockQueue).Buffers
+
+	if result.expectedMarketChannelPayloads != nil {
+		for i := range result.expectedMarketChannelPayloads {
+			payload := result.expectedMarketChannelPayloads[i]
+
+			msg := &common.WebSocketMessage{
+				ChannelID: common.GetMarketChannelID(s.marketHandler.market.ID),
+				Payload:   payload,
+			}
+
+			//expectedMsg, _ := json.Marshal(msg)
+			//log.Println("msg expected:", string(expectedMsg))
+			//for _, real := range queueBuffers {
+			//	log.Println(" == ", string(real))
+			//}
+
+			msgBytes, _ := json.Marshal(msg)
+			s.True(contains(queueBuffers, msgBytes), fmt.Sprintf("msg %s not exist", msgBytes))
+		}
+	}
+
+	assertHasOrderChangeMsgFunc := func(order *models.Order) {
+		msg := common.WebSocketMessage{
+			ChannelID: common.GetAccountChannelID(order.TraderAddress),
+			Payload: &common.WebsocketOrderChangePayload{
+				Type:  common.WsTypeOrderChange,
+				Order: order,
+			},
+		}
+		msgBytes, _ := json.Marshal(msg)
+		s.True(contains(queueBuffers, msgBytes), fmt.Sprintf("msg %s not exist", msgBytes))
+	}
+
+	// There must be some order change events
+	assertHasOrderChangeMsgFunc(b.takerOrder)
+	for i := range b.makerOrders {
+		makerOrder := b.makerOrders[i]
+		assertHasOrderChangeMsgFunc(makerOrder)
+	}
+}
+
+func (s *marketHandlerSuite) batchNewOrderTestPendingPart(b *batchMatchOrdersTest) (*models.Transaction, *models.LaunchLog) {
+	oldTradesCount := models.TradeDao.Count()
+	oldTransactionsCount := models.TransactionDao.Count()
+
+	for _, makerOrder := range b.makerOrders {
+		makerOrderEvent := common.NewOrderEvent{
+			Event: common.Event{},
+			Order: utils.ToJsonString(makerOrder),
+		}
+
+		_, _ = s.marketHandler.handleNewOrder(&makerOrderEvent)
+	}
+
+	takerOrderEvent := common.NewOrderEvent{
+		Event: common.Event{},
+		Order: utils.ToJsonString(b.takerOrder),
+	}
+
+	transaction, launchLog := s.marketHandler.handleNewOrder(&takerOrderEvent)
+
+	newTradesCount := models.TradeDao.Count()
+	newTransactionsCount := models.TransactionDao.Count()
+
+	s.Equal(b.expectedTradesCount, newTradesCount-oldTradesCount)
+	s.Equal(b.expectedTransactionsCount, newTransactionsCount-oldTransactionsCount)
+
+	if b.whenPending != nil {
+		s.assertExpectedResult(b, b.whenPending)
+	}
+
+	return transaction, launchLog
+}
+
+func (s *marketHandlerSuite) TestMatchOrders0() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "100"},
+		[]*buildOrderParams{
+			{"buy", "140", "140"},
+		},
+		1,
+		1,
+		&expectedResult{
+			[][]string{
+				{"0", "100", "0", "0"},
+				{"40", "100", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"140",
+					"140",
+				},
+				{
+					"buy",
+					2,
+					"140",
+					"-100",
+				},
+			},
+		},
+		nil,
+		nil,
+	)
+}
+
+// 1 v 1
+// taker full filled
+// maker partial filled
+func (s *marketHandlerSuite) TestMatchOrders1() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "100"},
+		[]*buildOrderParams{
+			{"buy", "140", "140"},
+		},
+		1,
+		1,
+		&expectedResult{
+			[][]string{
+				{"0", "100", "0", "0"},
+				{"40", "100", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"140",
+					"140",
+				},
+				{
+					"buy",
+					2,
+					"140",
+					"-100",
+				},
+			},
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "100", "0"},
+				{"40", "0", "100", "0"},
+			},
+			[]string{common.ORDER_FULL_FILLED, common.ORDER_PENDING},
+			nil,
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "0", "100"},
+				{"40", "0", "0", "100"},
+			},
+			[]string{common.ORDER_CANCELED, common.ORDER_PENDING},
+			nil,
+		},
+	)
+}
+
+// 1 v 1
+// taker full filled
+// maker full filled
+func (s *marketHandlerSuite) TestMatchOrders2() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "80"},
+		[]*buildOrderParams{
+			&buildOrderParams{"buy", "141", "80"},
+		},
+		1,
+		1,
+		&expectedResult{
+			[][]string{
+				{"0", "80", "0", "0"},
+				{"0", "80", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"141",
+					"80",
+				},
+				{
+					"buy",
+					2,
+					"141",
+					"-80",
+				},
+			}},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "80", "0"},
+				{"0", "0", "80", "0"},
+			},
+			[]string{common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED},
+			nil,
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "0", "80"},
+				{"0", "0", "0", "80"},
+			},
+			[]string{common.ORDER_CA
