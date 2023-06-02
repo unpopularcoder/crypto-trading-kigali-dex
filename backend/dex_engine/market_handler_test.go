@@ -462,4 +462,363 @@ func (s *marketHandlerSuite) TestMatchOrders2() {
 				{"0", "0", "0", "80"},
 				{"0", "0", "0", "80"},
 			},
-			[]string{common.ORDER_CA
+			[]string{common.ORDER_CANCELED, common.ORDER_CANCELED},
+			nil,
+		},
+	)
+}
+
+// 1 v 1
+// taker partial filled
+// maker full filled
+func (s *marketHandlerSuite) TestMatchOrders3() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "100"},
+		[]*buildOrderParams{
+			&buildOrderParams{"buy", "141", "80"},
+		},
+		1,
+		1,
+		&expectedResult{
+			[][]string{
+				{"20", "80", "0", "0"},
+				{"0", "80", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"141",
+					"80",
+				},
+				{
+					"buy",
+					2,
+					"141",
+					"-80",
+				},
+				{
+					"sell",
+					3,
+					"140",
+					"20",
+				},
+			},
+		},
+		&expectedResult{
+			[][]string{
+				{"20", "0", "80", "0"},
+				{"0", "0", "80", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_FULL_FILLED},
+			nil,
+		},
+		&expectedResult{
+			[][]string{
+				{"20", "0", "0", "80"},
+				{"0", "0", "0", "80"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_CANCELED},
+			nil,
+		},
+	)
+}
+
+// 1 v n
+// taker partial filled
+// maker full filled
+func (s *marketHandlerSuite) TestMatchOrders4() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "100"},
+		[]*buildOrderParams{
+			&buildOrderParams{"buy", "143", "20"},
+			&buildOrderParams{"buy", "142", "60"},
+			&buildOrderParams{"buy", "141", "10"},
+		},
+		3,
+		1,
+		&expectedResult{
+			[][]string{
+				{"10", "90", "0", "0"},
+				{"0", "20", "0", "0"},
+				{"0", "60", "0", "0"},
+				{"0", "10", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"143",
+					"20",
+				},
+				{
+					"buy",
+					2,
+					"142",
+					"60",
+				},
+				{
+					"buy",
+					3,
+					"141",
+					"10",
+				},
+				{
+					"buy",
+					4,
+					"143",
+					"-20",
+				},
+				{
+					"buy",
+					5,
+					"142",
+					"-60",
+				},
+				{
+					"buy",
+					6,
+					"141",
+					"-10",
+				},
+				{
+					"sell",
+					7,
+					"140",
+					"10",
+				},
+			},
+		},
+		&expectedResult{
+			[][]string{
+				{"10", "0", "90", "0"},
+				{"0", "0", "20", "0"},
+				{"0", "0", "60", "0"},
+				{"0", "0", "10", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED},
+			nil,
+		},
+		&expectedResult{
+			[][]string{
+				{"10", "0", "0", "90"},
+				{"0", "0", "0", "20"},
+				{"0", "0", "0", "60"},
+				{"0", "0", "0", "10"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_CANCELED, common.ORDER_CANCELED, common.ORDER_CANCELED},
+			nil,
+		},
+	)
+}
+
+// 1 v n
+// taker full filled
+// maker full filled
+func (s *marketHandlerSuite) TestMatchOrders5() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "100"},
+		[]*buildOrderParams{
+			&buildOrderParams{"buy", "143", "20"},
+			&buildOrderParams{"buy", "142", "60"},
+			&buildOrderParams{"buy", "141", "20"},
+		},
+		3,
+		1,
+		&expectedResult{
+			[][]string{
+				{"0", "100", "0", "0"},
+				{"0", "20", "0", "0"},
+				{"0", "60", "0", "0"},
+				{"0", "20", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"143",
+					"20",
+				},
+				{
+					"buy",
+					2,
+					"142",
+					"60",
+				},
+				{
+					"buy",
+					3,
+					"141",
+					"20",
+				},
+				{
+					"buy",
+					4,
+					"143",
+					"-20",
+				},
+				{
+					"buy",
+					5,
+					"142",
+					"-60",
+				},
+				{
+					"buy",
+					6,
+					"141",
+					"-20",
+				},
+			},
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "100", "0"},
+				{"0", "0", "20", "0"},
+				{"0", "0", "60", "0"},
+				{"0", "0", "20", "0"},
+			},
+			[]string{common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED},
+			nil,
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "0", "100"},
+				{"0", "0", "0", "20"},
+				{"0", "0", "0", "60"},
+				{"0", "0", "0", "20"},
+			},
+			[]string{common.ORDER_CANCELED, common.ORDER_CANCELED, common.ORDER_CANCELED, common.ORDER_CANCELED},
+			nil,
+		},
+	)
+}
+
+// 1 v n
+// taker full filled
+// maker partial filled
+func (s *marketHandlerSuite) TestMatchOrders6() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "140", "50"},
+		[]*buildOrderParams{
+			&buildOrderParams{"buy", "143", "20"},
+			&buildOrderParams{"buy", "142", "60"},
+			&buildOrderParams{"buy", "141", "20"},
+		},
+		2,
+		1,
+		&expectedResult{
+			[][]string{
+				{"0", "50", "0", "0"},
+				{"0", "20", "0", "0"},
+				{"30", "30", "0", "0"},
+				{"20", "0", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING},
+
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"143",
+					"20",
+				},
+				{
+					"buy",
+					2,
+					"142",
+					"60",
+				},
+				{
+					"buy",
+					3,
+					"141",
+					"20",
+				},
+				{
+					"buy",
+					4,
+					"143",
+					"-20",
+				},
+				{
+					"buy",
+					5,
+					"142",
+					"-30",
+				},
+			},
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "50", "0"},
+				{"0", "0", "20", "0"},
+				{"30", "0", "30", "0"},
+				{"20", "0", "0", "0"},
+			},
+			[]string{common.ORDER_FULL_FILLED, common.ORDER_FULL_FILLED, common.ORDER_PENDING, common.ORDER_PENDING},
+			nil,
+		},
+		&expectedResult{
+			[][]string{
+				{"0", "0", "0", "50"},
+				{"0", "0", "0", "20"},
+				{"30", "0", "0", "30"},
+				{"20", "0", "0", "0"},
+			},
+			[]string{common.ORDER_CANCELED, common.ORDER_CANCELED, common.ORDER_PENDING, common.ORDER_PENDING},
+			nil,
+		},
+	)
+}
+
+// no match
+func (s *marketHandlerSuite) TestMatchOrders7() {
+	s.newBatchMatchOrdersTest(
+		&buildOrderParams{"sell", "150", "50"},
+		[]*buildOrderParams{
+			&buildOrderParams{"buy", "143", "20"},
+			&buildOrderParams{"buy", "142", "60"},
+			&buildOrderParams{"buy", "141", "20"},
+		},
+		0,
+		0,
+		&expectedResult{
+			[][]string{
+				{"50", "0", "0", "0"},
+				{"20", "0", "0", "0"},
+				{"60", "0", "0", "0"},
+				{"20", "0", "0", "0"},
+			},
+			[]string{common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING, common.ORDER_PENDING},
+			[]*common.WebsocketMarketOrderChangePayload{
+				{
+					"buy",
+					1,
+					"143",
+					"20",
+				},
+				{
+					"buy",
+					2,
+					"142",
+					"60",
+				},
+				{
+					"buy",
+					3,
+					"141",
+					"20",
+				},
+				{
+					"sell",
+					4,
+					"150",
+					"50",
+			
