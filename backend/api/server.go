@@ -184,4 +184,11 @@ func recoverHandler(next echo.HandlerFunc) echo.HandlerFunc {
 					err = fmt.Errorf("%v", r)
 				}
 				stack := make([]byte, 2048)
-			
+				length := runtime.Stack(stack, false)
+				utils.Errorf("unhandled error: %v %s", err, stack[:length])
+				c.Error(err)
+			}
+		}()
+		return next(c)
+	}
+}
