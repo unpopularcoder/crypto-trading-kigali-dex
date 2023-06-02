@@ -124,4 +124,110 @@ func (e *DexEngine) newMarket(marketId string) (marketHandler *MarketHandler, er
 	}
 
 	if !market.IsPublished {
-		err = fmt.Errorf("open market fai
+		err = fmt.Errorf("open market fail, market [%s] not published", marketId)
+		return
+	}
+
+	marketHandler, err = NewMarketHandler(e.ctx, market, e.HydroEngine)
+	if err != nil {
+		return
+	}
+
+	e.marketHandlerMap[market.ID] = marketHandler
+	utils.Infof("market %s init done", marketHandler.market.ID)
+	return
+}
+
+func (e *DexEngine) closeMarket(marketId string) {
+	_, ok := e.marketHandlerMap[marketId]
+	if !ok {
+		utils.Errorf("close market fail, market [%s] not found", marketId)
+		return
+	}
+
+	marketHandler := e.marketHandlerMap[marketId]
+	delete(e.marketHandlerMap, marketId)
+	marketHandler.Stop()
+	return
+}
+
+func runMarket(e *DexEngine, marketHandler *MarketHandler) {
+	e.Wg.Add(1)
+
+	go func() {
+		defer e.Wg.Done()
+
+		utils.Infof("%s market handler is running", marketHandler.market.ID)
+		defer utils.Infof("%s market handler is stopped", marketHandler.market.ID)
+
+		marketHandler.Run()
+	}()
+}
+
+func (e *DexEngine) start() {
+	for i := range e.marketHandlerMap {
+		marketHandler := e.marketHandlerMap[i]
+		runMarket(e, marketHandler)
+	}
+
+	go func() {
+		for {
+			select {
+			case <-e.ctx.Done():
+				for _, handler := range e.marketHandlerMap {
+					close(handler.eventChan)
+				}
+				return
+			default:
+				data, err := e.eventQueue.Pop()
+				if err != nil {
+					panic(err)
+				}
+				var event common.Event
+				err = json.Unmarshal(data, &event)
+				if err != nil {
+					utils.Errorf("wrong event format: %+v", err)
+					continue
+				}
+
+				switch event.Type {
+				case common.EventOpenMarket:
+					marketHandler, err := e.newMarket(event.MarketID)
+					if err == nil {
+						runMarket(e, marketHandler)
+					} else {
+						utils.Errorf(err.Error())
+					}
+					break
+				case common.EventCloseMarket:
+					e.closeMarket(event.MarketID)
+					break
+				default:
+					marketHandler, ok := e.marketHandlerMap[event.MarketID]
+					if !ok {
+						utils.Errorf("engine not support market [%s]", event.MarketID)
+					} else {
+						marketHandler.eventChan <- data
+					}
+				}
+			}
+		}
+	}()
+}
+
+var hydroProtocol = &ethereum.EthereumHydroProtocol{}
+
+func Run(ctx context.Context, startMetrics func()) {
+	utils.Infof("dex engine start...")
+
+	//init database
+	models.Connect(os.Getenv("HSK_DATABASE_URL"))
+
+	//start dex engine
+	dexEngine := NewDexEngine(ctx)
+	dexEngine.start()
+	go startMetrics()
+
+	dexEngine.Wg.Wait()
+	utils.Infof("dex engine stopped!")
+}
