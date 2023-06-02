@@ -111,4 +111,195 @@ func (m MarketHandler) handleNewOrder(event *common.NewOrderEvent) (transaction 
 
 	utils.Debugf("%s NEW_ORDER  price: %s amount: %s %4s", event.MarketID, eventOrder.Price.StringFixed(5), eventOrder.Amount.StringFixed(5), eventOrder.Side)
 
-	matchResult, hasMatch := 
+	matchResult, hasMatch := m.hydroEngine.HandleNewOrder(eventMemoryOrder)
+	if hasMatch {
+		resultWithOrders := NewMatchResultWithOrders(&eventOrder, &matchResult)
+
+		for i := range resultWithOrders.MatchItems {
+			item := resultWithOrders.MatchItems[i]
+			makerOrder := resultWithOrders.modelMakerOrders[item.MakerOrder.ID]
+
+			makerOrder.AvailableAmount = makerOrder.AvailableAmount.Sub(item.MatchedAmount)
+			eventOrder.AvailableAmount = eventOrder.AvailableAmount.Sub(item.MatchedAmount)
+
+			if item.MatchShouldBeCanceled {
+				makerOrder.CanceledAmount = makerOrder.CanceledAmount.Add(item.MatchedAmount)
+				eventOrder.CanceledAmount = eventOrder.CanceledAmount.Add(item.MatchedAmount)
+			} else {
+				makerOrder.PendingAmount = makerOrder.PendingAmount.Add(item.MatchedAmount)
+				eventOrder.PendingAmount = eventOrder.PendingAmount.Add(item.MatchedAmount)
+			}
+
+			if item.MakerOrderIsDone {
+				makerOrder.CanceledAmount = makerOrder.Amount.Sub(makerOrder.ConfirmedAmount.Add(makerOrder.PendingAmount))
+				makerOrder.AvailableAmount = decimal.Zero
+			}
+
+			_ = UpdateOrder(makerOrder)
+
+			utils.Debugf("  [Take Liquidity] price: %s amount: %s (%s) ", item.MakerOrder.Price.StringFixed(5), item.MatchedAmount.StringFixed(5), item.MakerOrder.ID)
+		}
+
+		if matchResult.TakerOrderIsDone {
+			eventOrder.CanceledAmount = eventOrder.Amount.Sub(eventOrder.ConfirmedAmount.Add(eventOrder.PendingAmount))
+			eventOrder.AvailableAmount = decimal.Zero
+		}
+
+		if matchResult.ExistMatchToBeExecuted() {
+			transaction, launchLog = processTransactionAndLaunchLog(resultWithOrders)
+			trades := newTradesByMatchResult(resultWithOrders, transaction.ID)
+
+			for _, trade := range trades {
+				_ = InsertTrade(trade)
+			}
+		}
+	}
+
+	_ = InsertOrder(&eventOrder)
+
+	return transaction, launchLog
+}
+
+// If there are many items in the match result, it can't settle them in a single transaction, since there is a gas limit of a block.
+// Will separate the matches into different transactions in another  release.
+func processTransactionAndLaunchLog(matchResult *MatchResultWithOrders) (*models.Transaction, *models.LaunchLog) {
+	takerOrder := matchResult.modelTakerOrder
+	hydroTakerOrder := getHydroOrderFromModelOrder(takerOrder.GetOrderJson())
+
+	var hydroMakerOrders []*sdk.Order
+	var baseTokenFilledAmounts []*big.Int
+
+	market := models.MarketDao.FindMarketByID(takerOrder.MarketID)
+
+	baseTokenDecimal := market.BaseTokenDecimals
+
+	for _, item := range matchResult.MatchItems {
+		if item.MatchShouldBeCanceled {
+			//skip if match should be canceled
+			continue
+		}
+
+		modelMakerOrder := matchResult.modelMakerOrders[item.MakerOrder.ID]
+
+		hydroMakerOrder := getHydroOrderFromModelOrder(modelMakerOrder.GetOrderJson())
+		hydroMakerOrders = append(hydroMakerOrders, hydroMakerOrder)
+
+		baseTokenHugeAmt := item.MatchedAmount.Mul(decimal.New(1, int32(baseTokenDecimal))).Truncate(0)
+		baseTokenFilledAmt := utils.DecimalToBigInt(baseTokenHugeAmt)
+		baseTokenFilledAmounts = append(baseTokenFilledAmounts, baseTokenFilledAmt)
+
+		_ = UpdateOrder(modelMakerOrder)
+	}
+
+	transaction := &models.Transaction{
+		Status: common.STATUS_PENDING,
+		TransactionHash: &sql.NullString{
+			Valid:  false,
+			String: "",
+		},
+		MarketID:   takerOrder.MarketID,
+		ExecutedAt: time.Now().UTC(),
+		CreatedAt:  time.Now().UTC(),
+	}
+	err := models.TransactionDao.InsertTransaction(transaction)
+
+	if err != nil {
+		panic(err)
+	}
+
+	launchLog := &models.LaunchLog{
+		ItemType:  "hydroTrade",
+		ItemID:    transaction.ID,
+		Status:    "created",
+		From:      os.Getenv("HSK_RELAYER_ADDRESS"),
+		To:        os.Getenv("HSK_HYBRID_EXCHANGE_ADDRESS"),
+		Value:     decimal.Zero,
+		GasLimit:  int64(len(matchResult.MatchItems) * 250000),
+		Data:      utils.Bytes2HexP(hydroProtocol.GetMatchOrderCallData(hydroTakerOrder, hydroMakerOrders, baseTokenFilledAmounts)),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+
+	err = models.LaunchLogDao.InsertLaunchLog(launchLog)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return transaction, launchLog
+}
+
+func newTradesByMatchResult(matchResult *MatchResultWithOrders, transactionID int64) []*models.Trade {
+	var trades []*models.Trade
+	takerOrder := matchResult.modelTakerOrder
+
+	for i, item := range matchResult.MatchItems {
+		modelMakerOrder := matchResult.modelMakerOrders[item.MakerOrder.ID]
+		trade := &models.Trade{
+			TransactionID:   transactionID,
+			TransactionHash: "",
+			Status:          common.STATUS_PENDING,
+			MarketID:        takerOrder.MarketID,
+			Maker:           modelMakerOrder.TraderAddress,
+			Taker:           takerOrder.TraderAddress,
+			TakerSide:       takerOrder.Side,
+			MakerOrderID:    modelMakerOrder.ID,
+			TakerOrderID:    takerOrder.ID,
+			Sequence:        i,
+			Amount:          item.MatchedAmount,
+			Price:           modelMakerOrder.Price,
+			CreatedAt:       time.Now().UTC(),
+		}
+		trades = append(trades, trade)
+	}
+
+	return trades
+}
+
+func (m *MarketHandler) handleCancelOrder(event *common.CancelOrderEvent) (interface{}, error) {
+	order := models.OrderDao.FindByID(event.ID)
+	if order == nil {
+		return nil, errors.New(fmt.Sprintf("cannot find order with id %s", event.ID))
+	}
+
+	bookOrder := &common.MemoryOrder{
+		MarketID: m.market.ID,
+		ID:       order.ID,
+		Price:    order.Price,
+		Side:     order.Side,
+		Amount:   order.AvailableAmount,
+	}
+	msg, success := m.hydroEngine.HandleCancelOrder(bookOrder)
+	if success {
+		pushMessage(msg)
+	}
+
+	order.CanceledAmount = order.CanceledAmount.Add(order.AvailableAmount)
+	order.AvailableAmount = decimal.Zero
+	order.AutoSetStatusByAmounts()
+
+	err := UpdateOrder(order)
+
+	return order, err
+}
+
+func (m *MarketHandler) handleTransactionResult(event *common.ConfirmTransactionEvent) (interface{}, error) {
+	executedAt := time.Unix(int64(event.Timestamp), 0)
+	transaction := models.TransactionDao.FindTransactionByHash(event.Hash)
+	transaction.Status = event.Status
+	transaction.ExecutedAt = executedAt
+	_ = models.TransactionDao.UpdateTransaction(transaction)
+
+	_ = models.LaunchLogDao.UpdateLaunchLogsStatusByItemID(event.Status, transaction.ID)
+
+	trades := models.TradeDao.FindTradesByHash(event.Hash)
+	takerOrder := models.OrderDao.FindByID(trades[0].TakerOrderID)
+
+	for _, trade := range trades {
+		makerOrder := models.OrderDao.FindByID(trade.MakerOrderID)
+		takerOrder.PendingAmount = takerOrder.PendingAmount.Sub(trade.Amount)
+		makerOrder.PendingAmount = makerOrder.PendingAmount.Sub(trade.Amount)
+
+		switch event.Status {
+		case common.STATUS_FAILED:
+			ta
