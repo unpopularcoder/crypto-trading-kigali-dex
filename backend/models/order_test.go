@@ -125,4 +125,119 @@ func Test_PG_Order_GetOrderJson(t *testing.T) {
 		QuoteCurrencyHugeAmount: utils.StringToDecimal("200000000000000000000000000000000000"),
 		BaseCurrency:            os.Getenv("HSK_HYDRO_TOKEN_ADDRESS"),
 		QuoteCurrency:           os.Getenv("HSK_USD_TOKEN_ADDRESS"),
-		GasTokenHugeAmount:      utils.StringToDecimal("1000000000")
+		GasTokenHugeAmount:      utils.StringToDecimal("1000000000"),
+		Signature:               "0x15a85430057580a5a35125db098b686b3541a291b3fce69365dc47d502fa63395ce9f7100240e4558c6ad29b8aa9a2c01d2b5353babdffd6ac50babf0127fdd600",
+		Data:                    "something",
+	}
+	jsonStr := utils.ToJsonString(json)
+
+	order := RandomOrder()
+	order.JSON = jsonStr
+
+	assert.EqualValues(t, json.Trader, order.GetOrderJson().Trader)
+	assert.EqualValues(t, json.Relayer, order.GetOrderJson().Relayer)
+	assert.EqualValues(t, json.BaseCurrencyHugeAmount, order.GetOrderJson().BaseCurrencyHugeAmount)
+	assert.EqualValues(t, json.QuoteCurrencyHugeAmount, order.GetOrderJson().QuoteCurrencyHugeAmount)
+	assert.EqualValues(t, json.Signature, order.GetOrderJson().Signature)
+}
+
+func NewOrder(account, marketID, side string, withPending bool) *Order {
+	id := uuid2.NewV4().String()
+	amountInt := rand.Intn(10) + 2
+	amount := utils.IntToDecimal(amountInt)
+
+	pendingAmountInt := 0
+	if withPending {
+		pendingAmountInt = rand.Intn(amountInt-1) + 1
+	}
+
+	order := &Order{
+		ID:              id,
+		TraderAddress:   account,
+		MarketID:        marketID,
+		Side:            side,
+		Type:            "limit",
+		Price:           utils.IntToDecimal(rand.Intn(100) + 50),
+		Amount:          amount,
+		Status:          common.ORDER_PENDING,
+		Version:         "v1",
+		AvailableAmount: utils.IntToDecimal(amountInt - pendingAmountInt),
+		ConfirmedAmount: utils.StringToDecimal("0"),
+		CanceledAmount:  utils.StringToDecimal("0"),
+		PendingAmount:   utils.IntToDecimal(pendingAmountInt),
+		TakerFeeRate:    utils.StringToDecimal("0.003"),
+		MakerFeeRate:    utils.StringToDecimal("0.001"),
+		MakerRebateRate: utils.StringToDecimal("0"),
+		GasFeeAmount:    utils.StringToDecimal("1000000"),
+		JSON:            "something",
+		CreatedAt:       time.Now().UTC(),
+		UpdatedAt:       time.Now().UTC(),
+	}
+
+	return order
+}
+
+func RandomMatchOrder() (*Order, *Order) {
+	makerOrder := RandomOrder()
+	side := "buy"
+	if makerOrder.Side == "buy" {
+		side = "sell"
+	}
+
+	takerOrder := &Order{
+		ID:              uuid2.NewV4().String(),
+		TraderAddress:   makerOrder.TraderAddress,
+		MarketID:        makerOrder.MarketID,
+		Side:            side,
+		Type:            "limit",
+		Price:           makerOrder.Price,
+		Amount:          makerOrder.Amount,
+		Status:          common.ORDER_PENDING,
+		Version:         "v1",
+		AvailableAmount: makerOrder.Amount,
+		ConfirmedAmount: utils.StringToDecimal("0"),
+		CanceledAmount:  utils.StringToDecimal("0"),
+		PendingAmount:   utils.StringToDecimal("0"),
+		TakerFeeRate:    utils.StringToDecimal("0.003"),
+		MakerFeeRate:    utils.StringToDecimal("0.001"),
+		MakerRebateRate: utils.StringToDecimal("0"),
+		GasFeeAmount:    utils.StringToDecimal("1000000"),
+		JSON:            "something",
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	return makerOrder, takerOrder
+}
+
+func RandomOrder() *Order {
+	markets := []string{"WETH-DAI", "HOT-DAI", "AIR-DAI", "DAI-WETH", "HOT-WETH", "AIR-WETH", "TRX-DAI", "TRX-WETH"}
+	accounts := []string{"0xe36ea790bc9d7ab70c55260c66d52b1eca985f84", "0xe834ec434daba538cd1b9fe1582052b880bd7e63", "0x78dc5d2d739606d31509c31d654056a45185ecb6", "0xa8dda8d7f5310e4a9e24f8eba77e091ac264f872", "0x06cef8e666768cc40cc78cf93d9611019ddcb628", "0x4404ac8bd8f9618d27ad2f1485aa1b2cfd82482d", "0x7457d5e02197480db681d3fdf256c7aca21bdc12"}
+	sides := []string{"buy", "sell"}
+	types := []string{"limit", "market"}
+
+	id := uuid2.NewV4().String()
+	amount := utils.IntToDecimal(rand.Intn(10) + 1)
+	order := &Order{
+		ID:              id,
+		TraderAddress:   accounts[rand.Intn(len(accounts))],
+		MarketID:        markets[rand.Intn(len(markets))],
+		Side:            sides[rand.Intn(len(sides))],
+		Type:            types[rand.Intn(len(types))],
+		Price:           utils.IntToDecimal(rand.Intn(100) + 50),
+		Amount:          amount,
+		Status:          common.ORDER_PENDING,
+		Version:         "v1",
+		AvailableAmount: amount,
+		ConfirmedAmount: utils.StringToDecimal("0"),
+		CanceledAmount:  utils.StringToDecimal("0"),
+		PendingAmount:   utils.StringToDecimal("0"),
+		TakerFeeRate:    utils.StringToDecimal("0.003"),
+		MakerFeeRate:    utils.StringToDecimal("0.001"),
+		MakerRebateRate: utils.StringToDecimal("0"),
+		GasFeeAmount:    utils.StringToDecimal("1000000"),
+		JSON:            "something",
+		CreatedAt:       time.Now().UTC(),
+	}
+
+	return order
+}
