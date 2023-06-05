@@ -27,4 +27,6 @@ func TestBalanceDao_PG_GetByAccountAndSymbol(t *testing.T) {
 	order3 := NewOrder(account, "DAI-HOT", "sell", true)
 	_ = OrderDaoPG.InsertOrder(order3)
 	actBalance3 := BalanceDaoPG.GetByAccountAndSymbol(account, "DAI", 18)
-	exceptBalance3 := exceptBalance2.Add(order3.AvailableAmount.Add(order3.PendingAmount).Mul(decim
+	exceptBalance3 := exceptBalance2.Add(order3.AvailableAmount.Add(order3.PendingAmount).Mul(decimal.New(1, 18)))
+	assert.EqualValues(t, exceptBalance3.String(), actBalance3.String())
+}
