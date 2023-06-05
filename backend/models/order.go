@@ -54,4 +54,76 @@ func (o *Order) AutoSetStatusByAmounts() {
 	} else if o.CanceledAmount.Equal(o.Amount) {
 		o.Status = common.ORDER_CANCELED
 	} else if o.AvailableAmount.Add(o.PendingAmount).GreaterThan(decimal.Zero) {
-		o.Statu
+		o.Status = common.ORDER_PENDING
+	} else {
+		o.Status = common.ORDER_PARTIAL_FILLED
+	}
+}
+
+type OrderJSON struct {
+	Trader                  string          `json:"trader"`
+	Relayer                 string          `json:"relayer"`
+	BaseCurrencyHugeAmount  decimal.Decimal `json:"baseTokenAmount"`
+	QuoteCurrencyHugeAmount decimal.Decimal `json:"quoteTokenAmount"`
+	BaseCurrency            string          `json:"baseToken"`
+	QuoteCurrency           string          `json:"quoteToken"`
+	GasTokenHugeAmount      decimal.Decimal `json:"gasTokenAmount"`
+	Signature               string          `json:"signature"`
+	Data                    string          `json:"data"`
+}
+
+type ECSignature struct {
+	Config string `json:"config"`
+	R      string `json:"r"`
+	S      string `json:"s"`
+}
+
+func (o Order) GetOrderJson() *OrderJSON {
+	var orderJson OrderJSON
+	json.Unmarshal([]byte(o.JSON), &orderJson)
+	return &orderJson
+}
+
+type orderDaoPG struct {
+}
+
+func (Order) TableName() string {
+	return "orders"
+}
+
+func (orderDaoPG) FindMarketPendingOrders(marketID string) (orders []*Order) {
+	DB.Where("status = 'pending' and market_id = ?", marketID).Order("created_at asc").Find(&orders)
+	return
+}
+
+func (orderDaoPG) FindByAccount(trader, marketID, status string, offset, limit int) (count int64, orders []*Order) {
+	DB.Where("trader_address = ? and market_id = ? and status = ?", trader, marketID, status).Order("created_at desc").Limit(limit).Offset(offset).Find(&orders)
+	DB.Model(&Order{}).Where("trader_address = ? and market_id = ? and status = ?", trader, marketID, status).Count(&count)
+	return
+}
+
+func (orderDaoPG) FindByID(id string) *Order {
+	var order Order
+	DB.Where("id = ?", id).First(&order)
+	if order.ID == "" {
+		return nil
+	}
+	return &order
+}
+
+func (orderDaoPG) InsertOrder(order *Order) error {
+	return DB.Create(order).Error
+}
+
+func (orderDaoPG) UpdateOrder(order *Order) error {
+	return DB.Save(order).Error
+}
+
+func (o orderDaoPG) Count() (count int) {
+	err := DB.Model(&Order{}).Count(&count).Error
+	if err != nil {
+		utils.Errorf("count orders error: %v", err)
+	}
+
+	return
+}
