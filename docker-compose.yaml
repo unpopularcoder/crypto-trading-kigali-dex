@@ -152,4 +152,63 @@ services:
       <<: *logging_default
   engine:
     image: hydroprotocolio/hydro-scaffold-dex-backend:latest
-    container_name: hydro-scaffol
+    container_name: hydro-scaffold-dex-engine
+    command: /bin/engine
+    ports:
+      - 127.0.0.1:4004:4004
+    environment:
+      - HSK_DATABASE_URL=postgres://postgres:postgres@db/postgres?sslmode=disable
+      - HSK_REDIS_URL=redis://redis:6379/0
+      - HSK_HYBRID_EXCHANGE_ADDRESS=0x5c0286bef1434b07202a5ae3de38e66130d5280d
+      - HSK_PROXY_ADDRESS=0x04f67e8b7c39a25e100847cb167460d715215feb
+      - HSK_LOG_LEVEL=DEBUG
+      - METRICS_PORT=4004
+    volumes:
+      - datavolume:/data
+    depends_on:
+      - redis
+      - db
+    restart: always
+    logging:
+      <<: *logging_default
+  launcher:
+    image: hydroprotocolio/hydro-scaffold-dex-backend:latest
+    container_name: hydro-scaffold-dex-launcher
+    command: /bin/launcher
+    ports:
+      - 127.0.0.1:4005:4005
+    environment:
+      - HSK_DATABASE_URL=postgres://postgres:postgres@db/postgres?sslmode=disable
+      - HSK_BLOCKCHAIN_RPC_URL=http://ethereum-node:8545
+      - HSK_HYBRID_EXCHANGE_ADDRESS=0x5c0286bef1434b07202a5ae3de38e66130d5280d
+      - HSK_RELAYER_ADDRESS=0x93388b4efe13b9b18ed480783c05462409851547
+      - HSK_RELAYER_PK=95b0a982c0dfc5ab70bf915dcf9f4b790544d25bc5e6cff0f38a59d0bba58651
+      - HSK_LOG_LEVEL=DEBUG
+      - METRICS_PORT=4005
+    volumes:
+      - datavolume:/data
+    depends_on:
+      - ethereum-node
+      - db
+    restart: always
+    logging:
+      <<: *logging_default
+  maker:
+    image: hydroprotocolio/amm-bots
+    container_name: hydro-scaffold-dex-maker
+    depends_on:
+      - api
+    environment:
+      - BOT_TYPE=CONST_PRODUCT
+      - BOT_PRIVATE_KEY=0xa6553a3cbade744d6c6f63e557345402abd93e25cd1f1dba8bb0d374de2fcf4f
+      - BOT_BASE_TOKEN=HOT
+      - BOT_QUOTE_TOKEN=DAI
+      - BOT_BASE_URL=http://api:3001
+      - BOT_MIN_PRICE=0.8
+      - BOT_MAX_PRICE=1.2
+      - BOT_PRICE_GAP=0.02
+      - BOT_EXPAND_INVENTORY=2
+      - BOT_WEB3_URL=http://ethereum-node:8545
+    restart: on-failure:10
+    logging:
+      <<: *logging_default
