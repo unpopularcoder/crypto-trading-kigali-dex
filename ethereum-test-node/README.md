@@ -47,4 +47,76 @@ Some of them have special usage, see [Special Accounts](#special-accounts) secti
     (5) 0xafd4cd91a76745e11f8fd6262997fb20deef0cc3a9f3b9d77c157906b9cf52c6
     (6) 0xfa107bafe7be125d4e4a89fad1217405bdf3aeb2f1f18ccb0df8d35c35ef20d9
     (7) 0x91c689d4ad56feb3b5c8b405bfc711b4dbae75be01936a2490562c480ec4f586
-    (8) 0xa6553a3cbade744d6c6f63e557345402abd93e25cd1f1d
+    (8) 0xa6553a3cbade744d6c6f63e557345402abd93e25cd1f1dba8bb0d374de2fcf4f
+    (9) 0x95b0a982c0dfc5ab70bf915dcf9f4b790544d25bc5e6cff0f38a59d0bba58651
+
+## HD Wallet
+
+Mnemonic: `diagram range remind capable strategy fragile midnight bunker garage ship predict curtain`
+
+Base HD Path: `m/44'/60'/0'/0/{account_index}`
+
+## Deployed Contracts Addresses
+
+### Proxy:
+
+0x04f67E8b7C39A25e100847Cb167460D715215FEb
+
+### HybridExchange v1.1:
+
+0x5C0286beF1434b07202a5Ae3De38e66130d5280d
+
+### Hydro Token:
+
+0x4C4Fa7E8EA4cFCfC93DEAE2c0Cff142a1DD3a218
+
+### USD Token:
+
+0xBC3524Faa62d0763818636D5e400f112279d6cc0
+
+### WETH Token:
+
+0x4a817489643A89a1428b2DD441c3fbe4DBf44789
+
+## Special Accounts
+
+### Owner Address
+
+Address: `0x6766f3cfd606e1e428747d3364bae65b6f914d56`
+
+Private Key: `0xdc1dfb1ba0850f1e808eb53e4c83f6a340cc7545e044f0a0f88c0e38dd3fa40d`
+
+- Proxy Owner
+- HybridExchagne Owner
+- Tokens contract creator
+- All left ERC20 Coins belong to this address
+
+### Relayer Address
+
+Address: `0x93388b4efe13b9b18ed480783c05462409851547`
+
+Private Key: `0x95b0a982c0dfc5ab70bf915dcf9f4b790544d25bc5e6cff0f38a59d0bba58651`
+
+- Relayer Address
+- Have approved all coins
+
+### Market Maker Address
+
+Address: `0x126aa4ef50a6e546aa5ecd1eb83c060fb780891a`
+
+Private Key: `0xa6553a3cbade744d6c6f63e557345402abd93e25cd1f1dba8bb0d374de2fcf4f`
+
+- Maker Address
+- Have 100000 HOT Token
+- Have 100000 USD Token
+- Have 1000 WETH
+- Have approved all coins
+
+### Test Addresses
+
+Please see Available Accounts. All addresses with index from 1 to 5.
+
+- Have 100000 HOT
+- Have 100000 USD COIN
+- Have 1000 WETH
+- Have approved all coins
