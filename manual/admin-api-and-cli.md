@@ -200,3 +200,62 @@ To use default options, you only need to specify the base and quote token addres
 // Default market creation: specify the token addresses for your trading pair
 hydro-dex-ctl market new HOT-WWW \
   --baseTokenAddress=0x4c4fa7e8ea4cfcfc93deae2c0cff142a1dd3a218 \
+  --quoteTokenAddress=0xbc3524faa62d0763818636d5e400f112279d6cc0
+
+// create a new market and specify all attributes
+hydro-dex-ctl market new HOT-WWW \
+  --baseTokenAddress=0x4c4fa7e8ea4cfcfc93deae2c0cff142a1dd3a218 \
+  --quoteTokenAddress=0xbc3524faa62d0763818636d5e400f112279d6cc0 \
+  --minOrderSize=0.1 \
+  --pricePrecision=5 \
+  --priceDecimals=5 \
+  --amountDecimals=5 \
+  --makerFeeRate=0.001 \
+  --takerFeeRate=0.002 \
+  --gasUsedEstimation=150000
+
+```
+
+#### Approve market tokens.
+
+In order to make trades with a new token pair, the relayer must first set token allowance permissions for the new market. To do this, enter:
+
+```
+hydro-dex-ctl market approve HOT-WETH
+```
+
+In the example above, the Relayer is approving both HOT and WETH (if not already approved) for trading.
+
+#### Update a market
+
+To change parameters in an existing market, specify the market and the parameter you wish to modify.
+
+```
+hydro-dex-ctl market update HOT-WWW --amountDecimals=3
+```
+
+#### Publish a market
+
+The market selection area on the frontend will only show markets that are published.
+
+```
+hydro-dex-ctl market publish HOT-WETH
+```
+
+#### Unpublish a market
+
+Unpublishing a market will make the market no exist in the frontend market selection area.
+
+```
+hydro-dex-ctl market unpublish HOT-WETH
+
+```
+#### Change fee structure for a market
+
+You can modify the fee structure for each market. Hydro supports assymetric fee structures - so you can have the order maker and order taker automatically pay different fees.
+
+```
+// set the HOT-WETH market makerFee to 0.1% and takerFee to 0.3%
+
+hydro-dex-ctl market changeFees HOT-WETH "0.001" "0.003"
+```
