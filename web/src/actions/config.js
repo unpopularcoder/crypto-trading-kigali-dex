@@ -11,4 +11,12 @@ export const loadWeb3NetworkID = web3NetworkID => {
     const state = getState();
     const oldWeb3NetworkID = state.config.get('web3NetworkID');
 
-    if (oldWeb3Netwo
+    if (oldWeb3NetworkID === web3NetworkID) {
+      return;
+    } else if (oldWeb3NetworkID) {
+      window.location.reload();
+    }
+
+    dispatch(setConfigs({ web3NetworkID }));
+  };
+};
