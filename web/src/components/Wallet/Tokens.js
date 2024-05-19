@@ -86,4 +86,8 @@ class Tokens extends React.PureComponent {
           );
         })}
       </div>
- 
+    );
+  }
+}
+
+export default connect(mapStateToProps)(Tokens);
