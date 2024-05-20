@@ -168,4 +168,64 @@ class WebsocketConnector extends React.PureComponent {
     this.socket.onclose = event => {
       dispatch(setConfigs({ websocketConnected: false }));
     };
-    this.socket.onerror = event => 
+    this.socket.onerror = event => {
+      console.log('wsError', event);
+    };
+    this.socket.onmessage = event => {
+      const data = JSON.parse(event.data);
+      const { currentMarket, address } = this.props;
+      switch (data.type) {
+        case 'level2OrderbookSnapshot':
+          if (data.marketID !== currentMarket.id) {
+            break;
+          }
+
+          const bids = data.bids.map(priceLevel => [new BigNumber(priceLevel[0]), new BigNumber(priceLevel[1])]);
+          const asks = data.asks.map(priceLevel => [new BigNumber(priceLevel[0]), new BigNumber(priceLevel[1])]);
+          dispatch(initOrderbook(bids, asks));
+          break;
+        case 'level2OrderbookUpdate':
+          if (data.marketID !== currentMarket.id) {
+            break;
+          }
+          dispatch(updateOrderbook(data.side, new BigNumber(data.price), new BigNumber(data.amount)));
+          break;
+        case 'orderChange':
+          if (data.order.marketID === currentMarket.id) {
+            dispatch(orderUpdate(data.order));
+          }
+          break;
+        case 'lockedBalanceChange':
+          dispatch(
+            updateTokenLockedBalances({
+              [data.symbol]: data.balance
+            })
+          );
+          break;
+        case 'tradeChange':
+          if (data.trade.marketID === currentMarket.id) {
+            dispatch(tradeUpdate(data.trade));
+          }
+          break;
+        case 'newMarketTrade':
+          if (data.trade.marketID !== currentMarket.id) {
+            break;
+          }
+          dispatch(marketTrade(data.trade));
+          if (address) {
+            dispatch(
+              watchToken(currentMarket.baseTokenAddress, currentMarket.baseToken, currentMarket.baseTokenDecimals)
+            );
+            dispatch(
+              watchToken(currentMarket.quoteTokenAddress, currentMarket.quoteToken, currentMarket.quoteTokenDecimals)
+            );
+          }
+          break;
+        default:
+          break;
+      }
+    };
+  };
+}
+
+export default connect(mapStateToProps)(WebsocketConnector);
