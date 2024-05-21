@@ -1,0 +1,2 @@
+Welcome to 'crypto-trading-kigali-dex'! This repository is aimed at creating a robust cryptocurrency trading platform.
+Contributions are actively encouraged and highly appreciated. Don't be shy to fork and send PRs, or to open issues and request new features. Happy coding!
